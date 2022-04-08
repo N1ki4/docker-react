@@ -1,70 +1,95 @@
-# Getting Started with Create React App
+### To replace Travis with Github Actions you can do the following: 
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+1. Delete your .travis.yml file from the local project.
 
-## Available Scripts
+2. Navigate to your Github repository.
 
-In the project directory, you can run:
+3. Click Settings
 
-### `npm start`
+4. Click Secrets
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+5. Click New repository secret
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+6. Create key/value pair secrets for AWS_ACCESS_KEY, AWS_SECRET_KEY, DOCKER_USERNAME, DOCKER_PASSWORD.
 
-### `npm test`
+7. In your local development environment, create a .github directory at the root of your project
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+8. Create a workflows directory inside the new .github directory
 
-### `npm run build`
+9. In the workflows directory create a deploy.yaml file which should contain the following code (name does not matter):
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Important - remember to change your application_name, environment_name, existing_bucket_name and region to the values used by your AWS EBS environment:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-### `npm run eject`
+name: Deploy Frontend
+on:
+  push:
+    branches:
+      - main
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+      - run: docker build -t cygnetops/react-test -f Dockerfile.dev .
+      - run: docker run -e CI=true cygnetops/react-test npm test
+ 
+      - name: Generate deployment package
+        run: zip -r deploy.zip . -x '*.git*'
+ 
+      - name: Deploy to EB
+        uses: einaregilsson/beanstalk-deploy@v18
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          application_name: docker-gh
+          environment_name: Dockergh-env
+          existing_bucket_name: elasticbeanstalk-us-east-1-923445559289
+          region: us-east-1
+          version_label: ${{ github.sha }}
+          deployment_package: deploy.zip
+ 
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+10. Run the typical git add, commit and push commands
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+11. Click Actions in the Github repository dashboard to view each step of the workflow.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Note - This code is using a well-supported marketplace action, more info can be found here:
 
-## Learn More
+https://github.com/einaregilsson/beanstalk-deploy
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### ----------------------------------------------------------------------------
+### Required Updates for Amazon Linux 2 Platform - DO NOT SKIP
+updated 8-12-2021
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+When creating our Elastic Beanstalk environment in the next lecture, we need to select Docker running on 64bit Amazon Linux 2 and make a few changes to our project:
 
-### Code Splitting
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+This new AWS platform will conflict with the project we have built since it will look for a docker.compose.yml file to build from by default instead of a Dockerfile.
 
-### Analyzing the Bundle Size
+To resolve this, please do the following:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+1. Rename the development Compose config file
 
-### Making a Progressive Web App
+Rename the docker-compose.yml file to docker-compose-dev.yml. Going forward you will need to pass a flag to specify which compose file you want to build and run from:
+docker-compose -f docker-compose-dev.yml up
+docker-compose -f docker-compose-dev.yml up --build
+docker-compose -f docker-compose-dev.yml down
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+2. Create a production Compose config file
 
-### Advanced Configuration
+Create a docker-compose.yml file in the root of the project and paste the following:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+version: '3'
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '80:80'
+AWS EBS will see a file named docker-compose.yml and use it to build the single container application.
